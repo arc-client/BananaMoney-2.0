@@ -1,0 +1,198 @@
+/**
+ * 🍌 BananaMoney Lite - Core Bot
+ */
+
+import mineflayer from 'mineflayer';
+import readline from 'readline';
+import Logger from './utils/Logger.js';
+import { BoneCollector } from './modules/BoneCollector.js';
+import { GuiManager } from './modules/GuiManager.js';
+
+export class BananaBot {
+    constructor(config) {
+        this.config = config;
+        this.bot = null;
+        this.boneCollector = null;
+        this.guiManager = null;
+        this.rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+            prompt: '🍌 > '
+        });
+
+        // Connect logger to readline for clean output
+        Logger.setReadline(this.rl);
+    }
+
+    /**
+     * Initialize the bot
+     */
+    init() {
+        Logger.showBanner();
+        this.connect();
+        this.setupConsole();
+        this.rl.prompt();
+    }
+
+    /**
+     * Connect to Minecraft server
+     */
+    connect() {
+        Logger.system(`Connecting to ${this.config.host} as ${this.config.username}...`);
+
+        this.bot = mineflayer.createBot({
+            host: this.config.host,
+            port: this.config.port,
+            username: this.config.username,
+            version: this.config.version,
+            auth: this.config.auth,
+            hideErrors: true,
+            physicsEnabled: true
+        });
+
+        this.setupEvents();
+        this.initModules();
+    }
+
+    /**
+     * Initialize modules
+     */
+    initModules() {
+        this.boneCollector = new BoneCollector(this.bot, this.config);
+        this.guiManager = new GuiManager(this.bot);
+
+        this.bot.once('spawn', () => {
+            this.boneCollector.init();
+        });
+    }
+
+    /**
+     * Setup bot events
+     */
+    setupEvents() {
+        this.bot.on('spawn', () => {
+            Logger.system('Bot successfully spawned! 🍌');
+            Logger.system('Use !help for commands');
+        });
+
+        this.bot.on('messagestr', (message, position, jsonMsg) => {
+            if (position === 'game_info') return;
+            Logger.log(message, 'CHAT');
+        });
+
+        this.bot.on('windowOpen', (window) => {
+            Logger.system(`Window opened: ${window.title || window.type}`);
+        });
+
+        this.bot.on('error', (err) => {
+            Logger.error(`Error: ${err.message}`);
+        });
+
+        this.bot.on('kicked', (reason) => {
+            let msg = reason;
+            try {
+                const json = JSON.parse(reason);
+                msg = json.text || json.translate || json.extra?.[0]?.text || reason;
+            } catch (e) {
+                if (typeof reason === 'object') {
+                    msg = reason.text || reason.translate || JSON.stringify(reason);
+                }
+            }
+            Logger.error(`Kicked: ${msg}`);
+        });
+
+        this.bot.on('end', () => {
+            Logger.error('Disconnected. Reconnecting in 5s...');
+            if (this.config.autoReconnect) {
+                setTimeout(() => this.connect(), this.config.reconnectDelay);
+            }
+        });
+    }
+
+    /**
+     * Setup console input
+     */
+    setupConsole() {
+        this.rl.on('line', (input) => {
+            const raw = input.trim();
+
+            if (!raw) {
+                this.rl.prompt();
+                return;
+            }
+
+            // Check for command prefix
+            if (raw.startsWith('!')) {
+                this.handleCommand(raw.slice(1));
+            } else {
+                // Regular chat
+                if (this.bot && this.bot.entity) {
+                    this.bot.chat(raw);
+                    Logger.log(`[YOU] ${raw}`, 'CHAT');
+                } else {
+                    Logger.error('Bot not connected.');
+                }
+            }
+
+            this.rl.prompt();
+        });
+    }
+
+    /**
+     * Handle console commands
+     */
+    handleCommand(input) {
+        const args = input.toLowerCase().split(' ');
+        const cmd = args[0];
+
+        switch (cmd) {
+            case 'help':
+                Logger.system('=== Commands ===');
+                Logger.info('!bones on/off - Toggle bone collector');
+                Logger.info('!gui          - Show current window');
+                Logger.info('!click <slot> - Click window slot');
+                Logger.info('!shift <slot> - Shift-click slot');
+                Logger.info('!close        - Close window');
+                Logger.info('(No prefix)   - Send chat message');
+                break;
+
+            case 'bones':
+                if (args[1] === 'on') {
+                    if (this.boneCollector) this.boneCollector.start();
+                } else if (args[1] === 'off') {
+                    if (this.boneCollector) this.boneCollector.stop();
+                } else {
+                    Logger.error('Usage: !bones on/off');
+                }
+                break;
+
+            case 'gui':
+            case 'window':
+                if (this.guiManager) this.guiManager.showWindow();
+                break;
+
+            case 'click':
+                if (args[1] && this.guiManager) {
+                    this.guiManager.clickSlot(args[1]);
+                } else {
+                    Logger.error('Usage: !click <slot>');
+                }
+                break;
+
+            case 'shift':
+                if (args[1] && this.guiManager) {
+                    this.guiManager.shiftClick(args[1]);
+                } else {
+                    Logger.error('Usage: !shift <slot>');
+                }
+                break;
+
+            case 'close':
+                if (this.guiManager) this.guiManager.closeWindow();
+                break;
+
+            default:
+                Logger.error(`Unknown command: ${cmd}. Type !help`);
+        }
+    }
+}
