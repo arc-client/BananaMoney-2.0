@@ -3,7 +3,7 @@
  * Handle window/GUI interactions via console commands
  */
 
-import Logger from '../utils/Logger.js';
+import Logger from '../utils/logger.js';
 
 export class GuiManager {
     constructor(bot) {

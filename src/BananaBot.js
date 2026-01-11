@@ -4,7 +4,8 @@
 
 import mineflayer from 'mineflayer';
 import readline from 'readline';
-import Logger from './utils/Logger.js';
+import Logger from './utils/logger.js';
+import { AliasManager } from './utils/AliasManager.js';
 import { BoneCollector } from './modules/BoneCollector.js';
 import { GuiManager } from './modules/GuiManager.js';
 
@@ -14,6 +15,7 @@ export class BananaBot {
         this.bot = null;
         this.boneCollector = null;
         this.guiManager = null;
+        this.aliasManager = null;
         this.rl = readline.createInterface({
             input: process.stdin,
             output: process.stdout,
@@ -60,6 +62,7 @@ export class BananaBot {
     initModules() {
         this.boneCollector = new BoneCollector(this.bot, this.config);
         this.guiManager = new GuiManager(this.bot);
+        this.aliasManager = new AliasManager(this.config);
 
         this.bot.once('spawn', () => {
             this.boneCollector.init();
@@ -70,6 +73,28 @@ export class BananaBot {
      * Setup bot events
      */
     setupEvents() {
+        // Catch unhandled errors from mineflayer internals (like the passengers bug)
+        this.bot._client.on('error', (err) => {
+            Logger.error(`Protocol error (ignored): ${err.message}`);
+        });
+
+        // Catch uncaught exceptions to prevent crash
+        process.on('uncaughtException', (err) => {
+            // Ignore the known mineflayer passengers bug
+            if (err.message?.includes('passengers') || err.message?.includes('Cannot read properties of undefined')) {
+                Logger.error(`Mineflayer bug caught (ignored): ${err.message}`);
+                return;
+            }
+            Logger.error(`Uncaught Exception: ${err.message}`);
+            console.error(err.stack);
+        });
+
+        // Catch unhandled promise rejections
+        process.on('unhandledRejection', (reason, promise) => {
+            Logger.error(`Unhandled Rejection at: ${promise} reason: ${reason}`);
+            // Do not exit
+        });
+
         this.bot.on('spawn', () => {
             Logger.system('Bot successfully spawned! 🍌');
             Logger.system('Use !help for commands');
@@ -121,6 +146,11 @@ export class BananaBot {
                 return;
             }
 
+            // Resolve aliases
+            if (this.aliasManager) {
+                raw = this.aliasManager.resolve(raw);
+            }
+
             // Check for command prefix
             if (raw.startsWith('!')) {
                 this.handleCommand(raw.slice(1));
@@ -152,7 +182,10 @@ export class BananaBot {
                 Logger.info('!gui          - Show current window');
                 Logger.info('!click <slot> - Click window slot');
                 Logger.info('!shift <slot> - Shift-click slot');
+                Logger.info('!shift <slot> - Shift-click slot');
                 Logger.info('!close        - Close window');
+                Logger.info('!spawner x y z - Set spawner position');
+                Logger.info('!chest x y z   - Set chest position');
                 Logger.info('(No prefix)   - Send chat message');
                 break;
 
@@ -189,6 +222,54 @@ export class BananaBot {
 
             case 'close':
                 if (this.guiManager) this.guiManager.closeWindow();
+                break;
+
+            case 'spawner':
+                if (args.length === 4) {
+                    const x = parseInt(args[1]);
+                    const y = parseInt(args[2]);
+                    const z = parseInt(args[3]);
+                    if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
+                        this.config.boneCollector.spawnerPos = { x, y, z };
+                        import('./utils/Config.js').then(({ saveConfig }) => {
+                            if (saveConfig(this.config)) {
+                                Logger.system(`Spawner position updated to ${x}, ${y}, ${z}`);
+                            } else {
+                                Logger.error('Failed to save config');
+                            }
+                        });
+                        // Update runtime module if active
+                        if (this.boneCollector) this.boneCollector.config.spawnerPos = { x, y, z };
+                    } else {
+                        Logger.error('Invalid coordinates. Usage: !spawner <x> <y> <z>');
+                    }
+                } else {
+                    Logger.error('Usage: !spawner <x> <y> <z>');
+                }
+                break;
+
+            case 'chest':
+                if (args.length === 4) {
+                    const x = parseInt(args[1]);
+                    const y = parseInt(args[2]);
+                    const z = parseInt(args[3]);
+                    if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
+                        this.config.boneCollector.chestPos = { x, y, z };
+                        import('./utils/Config.js').then(({ saveConfig }) => {
+                            if (saveConfig(this.config)) {
+                                Logger.system(`Chest position updated to ${x}, ${y}, ${z}`);
+                            } else {
+                                Logger.error('Failed to save config');
+                            }
+                        });
+                        // Update runtime module if active
+                        if (this.boneCollector) this.boneCollector.config.chestPos = { x, y, z };
+                    } else {
+                        Logger.error('Invalid coordinates. Usage: !chest <x> <y> <z>');
+                    }
+                } else {
+                    Logger.error('Usage: !chest <x> <y> <z>');
+                }
                 break;
 
             default:

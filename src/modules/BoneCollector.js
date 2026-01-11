@@ -6,7 +6,7 @@
 import pkg from 'mineflayer-pathfinder';
 const { pathfinder, Movements, goals } = pkg;
 import Vec3 from 'vec3';
-import Logger from '../utils/Logger.js';
+import Logger from '../utils/logger.js';
 
 export class BoneCollector {
     constructor(bot, config) {

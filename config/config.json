@@ -9,6 +9,10 @@
     "colors": {
         "theme": "green"
     },
+    "aliases": {
+        "!c": "!click 15",
+        "!h": "Hi"
+    },
     "boneCollector": {
         "spawnerPos": {
             "x": 754,
