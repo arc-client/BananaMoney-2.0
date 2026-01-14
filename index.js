@@ -2,6 +2,7 @@
  * 🍌 BananaMoney Lite - Entry Point
  */
 
+import './src/utils/polyfill.js'; // MUST be first
 import { BananaBot } from './src/BananaBot.js';
 import { readFileSync } from 'fs';
 import readline from 'readline';

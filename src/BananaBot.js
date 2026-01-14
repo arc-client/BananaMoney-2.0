@@ -16,6 +16,8 @@ export class BananaBot {
         this.boneCollector = null;
         this.guiManager = null;
         this.aliasManager = null;
+        this.scripts = new Map();
+        this.scriptIdCounter = 1;
         this.rl = readline.createInterface({
             input: process.stdin,
             output: process.stdout,
@@ -139,7 +141,7 @@ export class BananaBot {
      */
     setupConsole() {
         this.rl.on('line', (input) => {
-            const raw = input.trim();
+            let raw = input.trim();
 
             if (!raw) {
                 this.rl.prompt();
@@ -178,15 +180,17 @@ export class BananaBot {
         switch (cmd) {
             case 'help':
                 Logger.system('=== Commands ===');
-                Logger.info('!bones on/off - Toggle bone collector');
-                Logger.info('!gui          - Show current window');
-                Logger.info('!click <slot> - Click window slot');
-                Logger.info('!shift <slot> - Shift-click slot');
-                Logger.info('!shift <slot> - Shift-click slot');
-                Logger.info('!close        - Close window');
-                Logger.info('!spawner x y z - Set spawner position');
-                Logger.info('!chest x y z   - Set chest position');
-                Logger.info('(No prefix)   - Send chat message');
+                Logger.info('!bones on/off   - Toggle bone collector');
+                Logger.info('!gui            - Show current window');
+                Logger.info('!click <slot>   - Click window slot');
+                Logger.info('!shift <slot>   - Shift-click slot');
+                Logger.info('!close          - Close window');
+                Logger.info('!spawner x y z  - Set spawner position');
+                Logger.info('!chest x y z    - Set chest position');
+                Logger.info('!repeat <sec> <cmd> - Repeat command every X sec');
+                Logger.info('!list           - List active scripts');
+                Logger.info('!stop <id>      - Stop a script by ID');
+                Logger.info('(No prefix)     - Send chat message');
                 break;
 
             case 'bones':
@@ -231,7 +235,7 @@ export class BananaBot {
                     const z = parseInt(args[3]);
                     if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
                         this.config.boneCollector.spawnerPos = { x, y, z };
-                        import('./utils/Config.js').then(({ saveConfig }) => {
+                        import('./utils/config.js').then(({ saveConfig }) => {
                             if (saveConfig(this.config)) {
                                 Logger.system(`Spawner position updated to ${x}, ${y}, ${z}`);
                             } else {
@@ -255,7 +259,7 @@ export class BananaBot {
                     const z = parseInt(args[3]);
                     if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
                         this.config.boneCollector.chestPos = { x, y, z };
-                        import('./utils/Config.js').then(({ saveConfig }) => {
+                        import('./utils/config.js').then(({ saveConfig }) => {
                             if (saveConfig(this.config)) {
                                 Logger.system(`Chest position updated to ${x}, ${y}, ${z}`);
                             } else {
@@ -269,6 +273,62 @@ export class BananaBot {
                     }
                 } else {
                     Logger.error('Usage: !chest <x> <y> <z>');
+                }
+                break;
+
+
+            case 'repeat':
+            case 'loop':
+                if (args.length >= 3) {
+                    const seconds = parseFloat(args[1]);
+                    const commandToRun = args.slice(2).join(' ');
+
+                    if (!isNaN(seconds) && seconds > 0 && commandToRun) {
+                        const id = this.scriptIdCounter++;
+                        const interval = setInterval(() => {
+                            if (this.bot) this.bot.chat(commandToRun);
+                        }, seconds * 1000);
+
+                        this.scripts.set(id, {
+                            interval: interval,
+                            command: commandToRun,
+                            seconds: seconds
+                        });
+
+                        Logger.system(`Script #${id} started: "${commandToRun}" every ${seconds}s`);
+                    } else {
+                        Logger.error('Invalid arguments. Usage: !repeat <seconds> <command>');
+                    }
+                } else {
+                    Logger.error('Usage: !repeat <seconds> <command>');
+                }
+                break;
+
+            case 'scripts':
+            case 'list':
+                if (this.scripts.size === 0) {
+                    Logger.info('No active scripts running.');
+                } else {
+                    Logger.system('=== Active Scripts ===');
+                    this.scripts.forEach((script, id) => {
+                        Logger.info(`#${id}: "${script.command}" (every ${script.seconds}s)`);
+                    });
+                }
+                break;
+
+            case 'stop':
+            case 'unloop':
+                if (args[1]) {
+                    const id = parseInt(args[1]);
+                    if (this.scripts.has(id)) {
+                        clearInterval(this.scripts.get(id).interval);
+                        this.scripts.delete(id);
+                        Logger.system(`Script #${id} stopped.`);
+                    } else {
+                        Logger.error(`Script #${id} not found.`);
+                    }
+                } else {
+                    Logger.error('Usage: !stop <id>');
                 }
                 break;
 
