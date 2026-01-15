@@ -8,7 +8,7 @@ import Logger from './utils/logger.js';
 import { AliasManager } from './utils/AliasManager.js';
 import { BoneCollector } from './modules/BoneCollector.js';
 import { GuiManager } from './modules/GuiManager.js';
-import { PathfindingManager } from './modules/PathfindingManager.js';
+import { ProfileManager } from './utils/ProfileManager.js';
 import { loader as autoEat } from 'mineflayer-auto-eat';
 import Vec3 from 'vec3';
 
@@ -19,7 +19,6 @@ export class BananaBot {
         this.boneCollector = null;
         this.guiManager = null;
         this.aliasManager = null;
-        this.pathfindingManager = null;
         this.scripts = new Map();
         this.scriptIdCounter = 1;
         this.rl = readline.createInterface({
@@ -67,11 +66,9 @@ export class BananaBot {
      * Initialize modules
      */
     initModules() {
-        this.pathfindingManager = new PathfindingManager(this.bot);
-        this.pathfindingManager.init();
-
-        this.boneCollector = new BoneCollector(this.bot, this.config, this.pathfindingManager);
+        this.boneCollector = new BoneCollector(this.bot, this.config);
         this.guiManager = new GuiManager(this.bot);
+        this.profileManager = new ProfileManager();
         this.aliasManager = new AliasManager(this.config);
 
         this.bot.once('spawn', () => {
@@ -458,6 +455,63 @@ export class BananaBot {
                 }
                 break;
 
+
+                break;
+
+            case 'profile':
+                if (!this.profileManager) return;
+                const pAction = args[1];
+                const pName = args[2];
+
+                if (pAction === 'list') {
+                    const profiles = this.profileManager.listProfiles();
+                    Logger.system('=== Profiles ===');
+                    profiles.forEach(p => Logger.info(`- ${p}`));
+                } else if (pAction === 'save') {
+                    if (!pName) {
+                        Logger.error('Usage: !profile save <name>');
+                        return;
+                    }
+                    const data = {
+                        config: {
+                            spawnerPos: this.config.boneCollector?.spawnerPos,
+                            chestPos: this.config.boneCollector?.chestPos,
+                            collectSlot: this.config.boneCollector?.collectSlot
+                        }
+                    };
+                    this.profileManager.saveProfile(pName, data);
+                    Logger.system(`Saved profile "${pName}"`);
+                } else if (pAction === 'load') {
+                    if (!pName) {
+                        Logger.error('Usage: !profile load <name>');
+                        return;
+                    }
+                    const profile = this.profileManager.getProfile(pName);
+                    if (profile && profile.config) {
+                        this.config.boneCollector = { ...this.config.boneCollector, ...profile.config };
+                        if (this.boneCollector) {
+                            this.boneCollector.config = this.config.boneCollector;
+                        }
+                        Logger.system(`Loaded profile "${pName}"`);
+                        Logger.info(`Spawner: ${this.config.boneCollector.spawnerPos?.x},${this.config.boneCollector.spawnerPos?.y},${this.config.boneCollector.spawnerPos?.z}`);
+                        Logger.info(`Chest: ${this.config.boneCollector.chestPos?.x},${this.config.boneCollector.chestPos?.y},${this.config.boneCollector.chestPos?.z}`);
+                    } else {
+                        Logger.error(`Profile "${pName}" not found or invalid.`);
+                    }
+                } else if (pAction === 'delete') {
+                    if (!pName) {
+                        Logger.error('Usage: !profile delete <name>');
+                        return;
+                    }
+                    if (this.profileManager.deleteProfile(pName)) {
+                        Logger.system(`Deleted profile "${pName}"`);
+                    } else {
+                        Logger.error('Profile not found.');
+                    }
+                } else {
+                    Logger.error('Usage: !profile <list|save|load|delete> [name]');
+                }
+                break;
 
             default:
                 Logger.error(`Unknown command: ${cmd}. Type !help`);
