@@ -101,4 +101,22 @@ export class GuiManager {
             Logger.error(`Shift-click failed: ${err.message}`);
         }
     }
+
+    /**
+     * Click an item by name
+     * @param {string} namePart - Part of the item name
+     */
+    async clickItem(namePart) {
+        const window = this.bot.currentWindow;
+        if (!window) return;
+
+        const item = window.slots.find(s => s && s.name && s.name.toLowerCase().includes(namePart.toLowerCase()));
+        if (!item) {
+            Logger.error(`Item containing "${namePart}" not found.`);
+            return;
+        }
+
+        Logger.system(`Clicking ${item.name} at slot ${item.slot}`);
+        await this.clickSlot(item.slot);
+    }
 }

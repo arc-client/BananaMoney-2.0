@@ -11,6 +11,7 @@
     "chalk": "^5.3.0",
     "figlet": "^1.7.0",
     "mineflayer": "^4.20.1",
+    "mineflayer-auto-eat": "^5.0.3",
     "mineflayer-pathfinder": "^2.4.5",
     "vec3": "^0.1.10"
   }

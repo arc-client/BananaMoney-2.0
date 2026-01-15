@@ -8,6 +8,9 @@ import Logger from './utils/logger.js';
 import { AliasManager } from './utils/AliasManager.js';
 import { BoneCollector } from './modules/BoneCollector.js';
 import { GuiManager } from './modules/GuiManager.js';
+import { PathfindingManager } from './modules/PathfindingManager.js';
+import { loader as autoEat } from 'mineflayer-auto-eat';
+import Vec3 from 'vec3';
 
 export class BananaBot {
     constructor(config) {
@@ -16,6 +19,7 @@ export class BananaBot {
         this.boneCollector = null;
         this.guiManager = null;
         this.aliasManager = null;
+        this.pathfindingManager = null;
         this.scripts = new Map();
         this.scriptIdCounter = 1;
         this.rl = readline.createInterface({
@@ -55,6 +59,7 @@ export class BananaBot {
         });
 
         this.setupEvents();
+        this.bot.loadPlugin(autoEat);
         this.initModules();
     }
 
@@ -62,13 +67,39 @@ export class BananaBot {
      * Initialize modules
      */
     initModules() {
-        this.boneCollector = new BoneCollector(this.bot, this.config);
+        this.pathfindingManager = new PathfindingManager(this.bot);
+        this.pathfindingManager.init();
+
+        this.boneCollector = new BoneCollector(this.bot, this.config, this.pathfindingManager);
         this.guiManager = new GuiManager(this.bot);
         this.aliasManager = new AliasManager(this.config);
 
         this.bot.once('spawn', () => {
             this.boneCollector.init();
         });
+    }
+
+
+
+    /**
+     * Setup auto-eat events
+     */
+    setupAutoEat() {
+        this.bot.autoEat.options = {
+            priority: 'foodPoints',
+            minHunger: 14,
+            bannedFood: []
+        };
+
+        this.bot.autoEat.on('eatStart', (opts) => {
+            Logger.info(`Auto-eating ${opts.food ? opts.food.name : 'unknown'}...`);
+        });
+
+        this.bot.autoEat.on('eatFinish', () => {
+            Logger.info('Finished eating.');
+        });
+
+        Logger.system('Auto-eat module initialized.');
     }
 
     /**
@@ -100,6 +131,7 @@ export class BananaBot {
         this.bot.on('spawn', () => {
             Logger.system('Bot successfully spawned! 🍌');
             Logger.system('Use !help for commands');
+            this.setupAutoEat();
         });
 
         this.bot.on('messagestr', (message, position, jsonMsg) => {
@@ -155,7 +187,7 @@ export class BananaBot {
 
             // Check for command prefix
             if (raw.startsWith('!')) {
-                this.handleCommand(raw.slice(1));
+                this.handleCommand(raw.slice(1)).catch(err => Logger.error(`Command error: ${err.message}`));
             } else {
                 // Regular chat
                 if (this.bot && this.bot.entity) {
@@ -173,7 +205,7 @@ export class BananaBot {
     /**
      * Handle console commands
      */
-    handleCommand(input) {
+    async handleCommand(input) {
         const args = input.toLowerCase().split(' ');
         const cmd = args[0];
 
@@ -190,6 +222,11 @@ export class BananaBot {
                 Logger.info('!repeat <sec> <cmd> - Repeat command every X sec');
                 Logger.info('!list           - List active scripts');
                 Logger.info('!stop <id>      - Stop a script by ID');
+                Logger.info('!eat            - Force eat now');
+                Logger.info('!autoeat on/off - Toggle auto-eat');
+                Logger.info('!stats          - Show bot stats');
+                Logger.info('!drop <all/held> - Drop items');
+                Logger.info('!look <x> <y> <z> or <player> - Look at target');
                 Logger.info('(No prefix)     - Send chat message');
                 break;
 
@@ -330,7 +367,97 @@ export class BananaBot {
                 } else {
                     Logger.error('Usage: !stop <id>');
                 }
+
                 break;
+
+            case 'eat':
+                if (this.bot && this.bot.autoEat) {
+                    Logger.info('Forcing eat...');
+                    this.bot.autoEat.eat().catch(err => {
+                        Logger.error(`Could not eat: ${err.message}`);
+                    });
+                }
+                break;
+
+            case 'autoeat':
+                if (args[1] === 'on') {
+                    this.bot.autoEat.enableAuto();
+                    Logger.system('Auto-eat ENABLED');
+                } else if (args[1] === 'off') {
+                    this.bot.autoEat.disableAuto();
+                    Logger.system('Auto-eat DISABLED');
+                } else {
+                    Logger.error('Usage: !autoeat on/off');
+                }
+                break;
+
+            case 'stats':
+                if (this.bot) {
+                    const health = Math.round(this.bot.health);
+                    const food = Math.round(this.bot.food);
+                    const saturation = Math.round(this.bot.foodSaturation);
+                    const level = this.bot.experience?.level || 0;
+                    const items = this.bot.inventory.items().length;
+                    const armor = this.bot.inventory.slots.slice(5, 9).filter(i => i).length;
+
+                    Logger.system('=== Bot Stats ===');
+                    Logger.info(`Health: ${health}/20 | Food: ${food}/20 | Sat: ${saturation}`);
+                    Logger.info(`Level: ${level} | Armor: ${armor} pcs`);
+                    Logger.info(`Inventory: ${items} items`);
+                    Logger.info(`Pos: ${this.bot.entity.position.floored()}`);
+                }
+                break;
+
+            case 'drop':
+                if (!this.bot) return;
+                const dropMode = args[1] || 'all';
+                Logger.system(`Dropping ${dropMode} items...`);
+
+                try {
+                    const items = this.bot.inventory.items();
+                    if (dropMode === 'held') {
+                        const held = this.bot.inventory.slots[this.bot.getEquipmentDestSlot('hand')];
+                        if (held) await this.bot.tossStack(held);
+                    } else if (dropMode === 'all') {
+                        // Drop everything
+                        for (const item of items) {
+                            await this.bot.tossStack(item);
+                            await new Promise(r => setTimeout(r, 200));
+                        }
+                    } else {
+                        // Try to find item by name
+                        const item = items.find(i => i.name.includes(dropMode));
+                        if (item) await this.bot.tossStack(item);
+                        else Logger.error('Item not found.');
+                    }
+                    Logger.system('Done dropping.');
+                } catch (e) {
+                    Logger.error(`Drop failed: ${e.message}`);
+                }
+                break;
+
+            case 'look':
+                if (!this.bot) return;
+                if (args.length === 2) {
+                    // Look at player
+                    const player = this.bot.players[args[1]];
+                    if (player && player.entity) {
+                        this.bot.lookAt(player.entity.position.offset(0, 1.6, 0));
+                        Logger.system(`Looking at ${args[1]}`);
+                    } else {
+                        Logger.error('Player not found or not visible.');
+                    }
+                } else if (args.length === 4) {
+                    const x = parseFloat(args[1]);
+                    const y = parseFloat(args[2]);
+                    const z = parseFloat(args[3]);
+                    this.bot.lookAt(new Vec3(x, y, z));
+                    Logger.system(`Looking at ${x}, ${y}, ${z}`);
+                } else {
+                    Logger.error('Usage: !look <player> OR !look <x> <y> <z>');
+                }
+                break;
+
 
             default:
                 Logger.error(`Unknown command: ${cmd}. Type !help`);

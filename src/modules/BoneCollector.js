@@ -3,15 +3,14 @@
  * Using manual walking as fallback when pathfinder doesn't move
  */
 
-import pkg from 'mineflayer-pathfinder';
-const { pathfinder, Movements, goals } = pkg;
-import Vec3 from 'vec3';
+import Logger from '../utils/logger.js';
 import Logger from '../utils/logger.js';
 
 export class BoneCollector {
-    constructor(bot, config) {
+    constructor(bot, config, pathfinder) {
         this.bot = bot;
         this.config = config.boneCollector || {};
+        this.pathfinder = pathfinder; // Injected dependency
         this.running = false;
         this.initialized = false;
         this.chestFull = false;
@@ -20,26 +19,9 @@ export class BoneCollector {
 
     async init() {
         if (this.initialized) return;
-
-        try {
-            this.bot.loadPlugin(pathfinder);
-        } catch (e) { }
-
-        try {
-            const mcDataModule = await import('minecraft-data');
-            this.mcData = mcDataModule.default(this.bot.version);
-
-            const movements = new Movements(this.bot, this.mcData);
-            movements.canDig = false;
-            movements.allowParkour = false;
-            movements.allowSprinting = false;
-
-            this.bot.pathfinder.setMovements(movements);
-            this.initialized = true;
-            Logger.system('Bone Collector: Ready');
-        } catch (err) {
-            Logger.error(`Init failed: ${err.message}`);
-        }
+        // Pathfinding is handled globally now
+        this.initialized = true;
+        Logger.system('Bone Collector: Ready');
     }
 
     async start() {
@@ -73,7 +55,7 @@ export class BoneCollector {
     }
 
     stopMovement() {
-        try { this.bot.pathfinder.stop(); } catch (e) { }
+        if (this.pathfinder) this.pathfinder.stop();
         this.bot.setControlState('forward', false);
         this.bot.setControlState('sprint', false);
         this.bot.setControlState('jump', false);
@@ -85,7 +67,7 @@ export class BoneCollector {
 
         // Go to spawner
         Logger.system('→ Walking to spawner...');
-        await this.walkToManual(this.config.spawnerPos);
+        await this.pathfinder.goTo(this.config.spawnerPos);
         await this.sleep(500);
 
         // Open spawner
@@ -114,7 +96,7 @@ export class BoneCollector {
 
         // Go to chest
         Logger.system('→ Walking to chest...');
-        await this.walkToManual(this.config.chestPos);
+        await this.pathfinder.goTo(this.config.chestPos);
         await this.sleep(500);
 
         // Deposit
@@ -125,52 +107,10 @@ export class BoneCollector {
     /**
      * Manual walking - look at target and walk forward
      */
-    async walkToManual(pos) {
-        if (!pos) return;
 
-        const targetVec = new Vec3(pos.x, pos.y, pos.z);
-        const startTime = Date.now();
-        const timeout = 20000;
-
-        while (this.running && (Date.now() - startTime) < timeout) {
-            const botPos = this.bot.entity.position;
-            const dist = botPos.distanceTo(targetVec);
-
-            if (dist < 2) {
-                this.stopMovement();
-                Logger.system('Arrived!');
-                return;
-            }
-
-            // Look at target
-            await this.bot.lookAt(new Vec3(pos.x, pos.y + 1, pos.z));
-
-            // Walk forward
-            this.bot.setControlState('forward', true);
-
-            // Jump if we might be stuck
-            if (dist > 2 && this.bot.entity.onGround) {
-                // Check if there's a block in front
-                const yaw = this.bot.entity.yaw;
-                const frontX = botPos.x - Math.sin(yaw);
-                const frontZ = botPos.z - Math.cos(yaw);
-                const frontBlock = this.bot.blockAt(new Vec3(frontX, botPos.y, frontZ));
-
-                if (frontBlock && frontBlock.boundingBox !== 'empty') {
-                    this.bot.setControlState('jump', true);
-                    await this.sleep(100);
-                    this.bot.setControlState('jump', false);
-                }
-            }
-
-            await this.sleep(100);
-        }
-
-        this.stopMovement();
-        Logger.system('Walk timeout');
-    }
 
     async interactWithBlock(pos) {
+        const Vec3 = (await import('vec3')).default;
         // Try the exact block first
         let block = this.bot.blockAt(new Vec3(pos.x, pos.y, pos.z));
 
